@@ -6,7 +6,7 @@ Coming soon as cross platform [``popen``](https://linux.die.net/man/3/popen).
 
 ## C++
 Library provides only read stream **``ipstream``** derived from ``std::istream``.
-Current implementation is POSIX & libstdc++ only.
+Current implementation is POSIX & libstdc++ only. Requires ``C++11``.
 
 The simplest example:
 ```c++
