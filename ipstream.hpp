@@ -1,18 +1,19 @@
 #include <istream>
 #include <ext/stdio_filebuf.h>
+#include <type_traits>
 
 #include <unistd.h>
 #include <paths.h>
 
 namespace ipstream_details
 {
-  template<typename CharT, typename Traits>
-  __gnu_cxx::stdio_filebuf<CharT, Traits> open_process(const char *program)
+  template<typename CharT, typename Traits, typename = typename std::enable_if<std::is_same<char, CharT>::value>::type>
+  __gnu_cxx::stdio_filebuf<CharT, Traits> open_process(const CharT *program)
   {
     int pdes[2];
     pid_t pid;
     char *args[] = { (char*)"sh", (char*)"-c", nullptr, nullptr };
-    __gnu_cxx::stdio_filebuf<char> filebuf;
+    __gnu_cxx::stdio_filebuf<CharT, Traits> filebuf;
 
     if (pipe(pdes) < 0) {
       return {};
@@ -34,7 +35,7 @@ namespace ipstream_details
       _exit(127); // unistd version of exit
     }
     
-    filebuf = __gnu_cxx::stdio_filebuf<char>(pdes[0], std::ios_base::in);
+    filebuf = __gnu_cxx::stdio_filebuf<CharT, Traits>(pdes[0], std::ios_base::in);
     close(pdes[1]);
     return filebuf;
   }
@@ -46,12 +47,12 @@ struct basic_ipstream : std::basic_istream<CharT, Traits>
 
   basic_ipstream() : Base(&filebuf), filebuf() {}
   
-  basic_ipstream(const char *program) 
+  basic_ipstream(const CharT *program) 
     : Base(&filebuf), filebuf(ipstream_details::open_process<CharT, Traits>(program))
   {
   }
 
-  basic_ipstream(const std::string &program) 
+  basic_ipstream(const std::basic_string<CharT> &program) 
     : Base(&filebuf), filebuf(ipstream_details::open_process<CharT, Traits>(program.c_str()))
   {
   }
@@ -61,12 +62,12 @@ struct basic_ipstream : std::basic_istream<CharT, Traits>
     return filebuf.is_open();
   }
 
-  void open(const char *program)
+  void open(const CharT *program)
   {
     filebuf = ipstream_details::open_process<CharT, Traits>(program);
   }
 
-  void open(const std::string &program)
+  void open(const std::basic_string<CharT> &program)
   {
     filebuf = ipstream_details::open_process<CharT, Traits>(program.c_str());
   }
@@ -92,4 +93,4 @@ private:
 };
 
 using ipstream = basic_ipstream<char>;
-using wipstream = basic_ipstream<wchar_t>;
+using wipstream = basic_ipstream<wchar_t>; // ! currently not supported by open_process function
