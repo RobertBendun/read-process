@@ -15,15 +15,10 @@ The simplest example:
 
 #include "ipstream.hpp"
 
-void narrow()
+int main()
 {
   ipstream stream("ls -la");
   for (std::string line; std::getline(stream, line); ++i)
       std::cout << line << '\n';
-}
-
-int main()
-{
-  ipstream stream("ls -la");
 }
 ```
