@@ -1,60 +1,81 @@
 #include <istream>
 #include <ext/stdio_filebuf.h>
 #include <type_traits>
+#include <cstdio>
 
 #include <unistd.h>
 #include <paths.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+
+enum class captured_stream : decltype(STDOUT_FILENO)
+{
+  default_output = STDOUT_FILENO,
+  error_output   = STDERR_FILENO
+};
 
 namespace ipstream_details
 {
   template<typename CharT, typename Traits, typename = typename std::enable_if<std::is_same<char, CharT>::value>::type>
-  __gnu_cxx::stdio_filebuf<CharT, Traits> open_process(const CharT *program)
+  __gnu_cxx::stdio_filebuf<CharT, Traits> open_process(const CharT *program, ::pid_t &pid, captured_stream fdOfChild)
   {
-    int pdes[2];
-    pid_t pid;
-    char *args[] = { (char*)"sh", (char*)"-c", nullptr, nullptr };
-    __gnu_cxx::stdio_filebuf<CharT, Traits> filebuf;
+    int pipe[2];
+    char *args[] = { const_cast<char*>("sh"), const_cast<char*>("-c"), nullptr, nullptr };
 
-    if (pipe(pdes) < 0) {
+    if (::pipe(pipe) < 0) {
       return {};
     }
 
-    if ((pid = fork()) < 0) {
-      close(pdes[0]);
-      close(pdes[1]);
+    if ((pid = ::fork()) < 0) {
+      ::close(pipe[0]);
+      ::close(pipe[1]);
       return {};
     }
     else if (pid == 0) {
-      close(pdes[0]);
-      if (pdes[1] != STDOUT_FILENO) {
-        dup2(pdes[1], STDOUT_FILENO);
-        close(pdes[1]);
+      ::close(pipe[0]);
+      if (pipe[1] != static_cast<int>(fdOfChild)) {
+        ::dup2(pipe[1], static_cast<int>(fdOfChild));
+        ::close(pipe[1]);
       }
+
+      fclose(freopen(_PATH_DEVNULL, "w", fdOfChild == captured_stream::default_output ? stderr : stdout));
+
       args[2] = (char *)program;
-      execv(_PATH_BSHELL, args);
-      _exit(127); // unistd version of exit
+      ::execv(_PATH_BSHELL, args);
+      ::_exit(1); // unistd version of exit; better then another dependency :)
     }
     
-    filebuf = __gnu_cxx::stdio_filebuf<CharT, Traits>(pdes[0], std::ios_base::in);
-    close(pdes[1]);
-    return filebuf;
+    ::close(pipe[1]);
+    return __gnu_cxx::stdio_filebuf<CharT, Traits>(pipe[0], std::ios_base::in);
+  }
+
+  template<typename CharT, typename Traits>
+  void close_process(__gnu_cxx::stdio_filebuf<CharT, Traits> &filebuf, pid_t pid)
+  {
+    int status;
+    ::pid_t retval = ::waitpid(pid, &status, 0);
+    filebuf.close();
   }
 }
 
 template<typename CharT, typename Traits = std::char_traits<CharT>>
 struct basic_ipstream : std::basic_istream<CharT, Traits>
 {
-
   basic_ipstream() : Base(&filebuf), filebuf() {}
   
-  basic_ipstream(const CharT *program) 
-    : Base(&filebuf), filebuf(ipstream_details::open_process<CharT, Traits>(program))
+  basic_ipstream(const CharT *program, captured_stream stream = captured_stream::default_output) 
+    : Base(&filebuf), filebuf(ipstream_details::open_process<CharT, Traits>(program, pid, stream))
   {
   }
 
-  basic_ipstream(const std::basic_string<CharT> &program) 
-    : Base(&filebuf), filebuf(ipstream_details::open_process<CharT, Traits>(program.c_str()))
+  basic_ipstream(const std::basic_string<CharT> &program, captured_stream stream = captured_stream::default_output) 
+    : Base(&filebuf), filebuf(ipstream_details::open_process<CharT, Traits>(program.c_str(), pid, stream))
   {
+  }
+
+  ~basic_ipstream() noexcept
+  {
+    close();
   }
 
   bool is_open() const
@@ -62,14 +83,14 @@ struct basic_ipstream : std::basic_istream<CharT, Traits>
     return filebuf.is_open();
   }
 
-  void open(const CharT *program)
+  void open(const CharT *program, captured_stream stream = captured_stream::default_output)
   {
-    filebuf = ipstream_details::open_process<CharT, Traits>(program);
+    filebuf = ::ipstream_details::open_process<CharT, Traits>(program, pid, stream);
   }
 
-  void open(const std::basic_string<CharT> &program)
+  void open(const std::basic_string<CharT> &program, captured_stream stream = captured_stream::default_output)
   {
-    filebuf = ipstream_details::open_process<CharT, Traits>(program.c_str());
+    filebuf = ::ipstream_details::open_process<CharT, Traits>(program.c_str(), pid, stream);
   }
 
   __gnu_cxx::stdio_filebuf<CharT, Traits>* rdbuf()
@@ -84,12 +105,19 @@ struct basic_ipstream : std::basic_istream<CharT, Traits>
 
   void close()
   {
-    filebuf.close();
+    if (pid != -1) {
+      ipstream_details::close_process(filebuf, pid);
+      pid = -1;
+    }
+    else if (filebuf.is_open())
+      filebuf.close();
   }
 
 private:
   using Base = std::basic_istream<CharT, Traits>;
   __gnu_cxx::stdio_filebuf<CharT, Traits> filebuf;
+  pid_t pid = -1;
+  unsigned capturedFd = STDOUT_FILENO;
 };
 
 using ipstream = basic_ipstream<char>;
