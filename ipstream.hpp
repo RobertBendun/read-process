@@ -8,7 +8,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 
-namespace rc
+namespace rp
 {
   enum class captured_stream : decltype(STDOUT_FILENO)
   {
