@@ -17,7 +17,7 @@ The simplest example:
 
 int main()
 {
-  rc::ipstream stream("ls -la");
+  rp::ipstream stream("ls -la");
   for (std::string line; std::getline(stream, line); ++i)
       std::cout << line << '\n';
 }
